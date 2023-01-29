@@ -1,0 +1,71 @@
+\usepackage{fontspec} % For loading fonts
+\defaultfontfeatures{Mapping=tex-text}
+\setmainfont[SmallCapsFont = Fontin-SmallCaps.otf]{Fontin-Regular.otf} % Main document font
+
+\usepackage{xunicode,xltxtra,url,parskip} % Formatting packages
+
+\usepackage[usenames,dvipsnames]{xcolor} % Required for specifying custom colors
+
+\usepackage[big]{layaureo} % Margin formatting of the A4 page, an alternative to layaureo can be \usepackage{fullpage}
+% To reduce the height of the top margin uncomment: \addtolength{\voffset}{-1.3cm}
+
+\usepackage{float}
+\usepackage{hyperref} % Required for adding links	and customizing them
+\definecolor{linkcolour}{rgb}{0,0.2,0.6} % Link color
+\hypersetup{colorlinks,breaklinks,urlcolor=linkcolour,linkcolor=linkcolour} % Set link colors throughout the document
+
+\usepackage{titlesec} % Used to customize the \section command
+\titleformat{\section}{\Large\scshape\raggedright}{}{0em}{}[\titlerule] % Text formatting of sections
+\titlespacing{\section}{0pt}{8pt}{8pt} % Spacing around sections
+\usepackage{caption}
+\usepackage{booktabs,array,arydshln}
+\usepackage[export]{adjustbox}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{subcaption}
+\usepackage[most]{tcolorbox}
+\usepackage{siunitx}        % new, for nicer aligning of numbers in table
+\usepackage{etoolbox}
+\usepackage{tikz}
+\usetikzlibrary{circuits.logic.US,circuits.logic.IEC,fit} 
+\usepackage{lipsum}
+\tcbuselibrary{listings,breakable}
+\newtcbox{\py}{enhanced,nobeforeafter,tcbox raise base,boxrule=0.7pt,top=0mm,bottom=0mm,
+  right=0mm,left=4mm,arc=1pt,boxsep=2pt,fontupper=\small, before upper={\vphantom{dlg}},
+  colframe=linkcolour!50!black,coltext=linkcolour!25!black,colback=linkcolour!10!white,
+  overlay={\begin{tcbclipinterior}\fill[linkcolour!75!blue!50!white] (frame.south west)
+    rectangle node[text=white,font=\sffamily\bfseries\tiny,rotate=90] {PY} ([xshift=4mm]frame.north west);\end{tcbclipinterior}}}
+
+\MakeRobust\py
+
+\ifdefined\pdfstringdefDisableCommands
+    \pdfstringdefDisableCommands{\def\py#1{\small\textsc{'#1'}}}
+\fi
+
+\tcbuselibrary{listings,breakable}
+\newtcbox{\html}{enhanced,nobeforeafter,tcbox raise base,boxrule=0.7pt,top=0mm,bottom=0mm,
+  right=0mm,left=4mm,arc=1pt,boxsep=2pt,fontupper=\small, before upper={\vphantom{dlg}},
+  colframe=linkcolour!50!black,coltext=linkcolour!25!black,colback=linkcolour!10!white,
+  overlay={\begin{tcbclipinterior}\fill[linkcolour!75!blue!50!white] (frame.south west)
+    rectangle node[text=white,font=\sffamily\bfseries\tiny,rotate=90] {html} ([xshift=4mm]frame.north west);\end{tcbclipinterior}}}
+
+\MakeRobust\html
+
+\ifdefined\pdfstringdefDisableCommands
+    \pdfstringdefDisableCommands{\def\html#1{\small\textsc{'#1'}}}
+\fi
+    
+\newtcbox{\mytcbox}{enhanced,nobeforeafter,tcbox raise base,boxrule=0.7pt,top=0mm,bottom=0mm,
+right=0mm,left=0mm,arc=1pt,boxsep=2pt,fontupper=\small, before upper={\vphantom{dlg}},
+colframe=linkcolour!50!black,coltext=linkcolour!25!black,colback=linkcolour!10!white}
+\MakeRobust\mytcbox
+
+\ifdefined\pdfstringdefDisableCommands
+    \pdfstringdefDisableCommands{\def\mytcbox#1{'#1'}}
+\fi
+
+
+\newcommand\addvmargin[1]{
+  \node[fit=(current bounding box),inner ysep=#1,inner xsep=0]{};
+}
