@@ -19,6 +19,7 @@ from tabnanny import check
 from openpyxl import Workbook
 from scipy.stats import entropy 
 from operator import itemgetter, le
+# from dbus import MissingReplyHandlerException
 import pandas as pd
 import random
 import sys
@@ -68,7 +69,7 @@ class Spytrometer:
                                         #1 for unique peptides, less memory, less peptides, but slower peptide generation
                  tolarence_type="PPM",
                  tolarence_window=10,
-                 intensity_cutoff_coefficient=0.05
+                 intensity_cutoff_coefficient=0.5
                  ):
 
         # constants
@@ -204,11 +205,12 @@ class Spytrometer:
                     self.spectrum_collection.append(spectrum_record)
 
     def load_data(self, path_to_file, min_peak_th=10, data_type='humvar'):
-        # print("Loading spectrum data...")
-        # start_time = datetime.now()
         self.spectrum_collection = []
         with mzml.read(path_to_file, dtype=dict) as spectra:
             for spectrum_id, spectrum in enumerate(spectra):
+                if spectrum_id != 0:  # Skip all spectra except for the one with scan_id = 1
+                # if spectrum_id < 1 or spectrum_id > 15:  # Skip all spectra except for those with scan_id between 1 and 15 (inclusive)
+                    continue
                 if data_type in ['humvar', 'iprg', 'malaria', 'yeast']:
                     spectrum_record = Spectrum(
                     path_to_file,  # path to file
@@ -545,21 +547,21 @@ class Spytrometer:
             #print(mod_pep_mass, mod_pept, target)
             self.peptide_collection.append(pept_obj)
         
-    def calculate_peptide_fragmentation(self, peptide_id):  # calculating masses of peptide fragment ions
-        
-        peptide = self.peptide_collection[peptide_id]
+    def calculate_peptide_fragmentation(self, peptide_sequence):
+        # calculating masses of peptide fragment ions
+        peptide = Peptide(peptide_sequence)
         peptide.peaks = [dict() for x in range(self.max_theo_pept_peak_charge)]
-        
+
         for ion_series in self.theo_pept_peaks:
 
             if ion_series == 'b':  # generate B ions.
                 fragment_ions = np.cumsum(peptide.aa_mass[:-1]) + (self.B + spytrometer_proton)
             if ion_series == 'y':  # generate Y ions.
                 fragment_ions = np.cumsum(peptide.aa_mass[1:][::-1]) + (self.Y + spytrometer_proton)
-                
+
             for peak_charge in range(self.max_theo_pept_peak_charge):
                 fragment_idx = self.mass2bin_vec(fragment_ions, peak_charge + 1)
-                peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx ))
+                peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx))
                 peptide.peaks[peak_charge][ion_series] = peak_list
 
     def set_candidate_peptides(self):
@@ -1674,17 +1676,17 @@ class Spytrometer:
         plt.xlabel('m/z')
         plt.grid(True)
         plt.yticks((0.0, 0.5, 1.0))
-
+        # plt.savefig(spectra.png)
 
         if show_annotation == True:
             peptide = spectrum.peptide
             # plt.title('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
-            print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
+            # print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
             cnt = 1
             # Line for b fragments
-            # plt.plot([min_x, max_x],[max_y+range_y*0.1,max_y+range_y*0.1], linewidth=line_width)
+            plt.plot([min_x, max_x],[max_y+range_y*0.1,max_y+range_y*0.1], linewidth=line_width)
             # Line for y fragments
-            # plt.plot([min_x, max_x],[max_y+range_y*0.2,max_y+range_y*0.2], linewidth=line_width)
+            plt.plot([min_x, max_x],[max_y+range_y*0.2,max_y+range_y*0.2], linewidth=line_width)
             for charge in range(len(peptide.peaks)):
                 # Use theoretical peaks which were used in scoring
                 if spectrum.charge < 3 and charge > 0:
