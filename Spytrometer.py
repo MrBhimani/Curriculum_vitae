@@ -10,33 +10,20 @@ the property of authors. The intellectual and technical concepts contained
 herein are proprietary to authors.
 Distributed under the Apache License, Version 2.0.
 """
-from ast import Return
-from calendar import leapdays
-from cmath import log
-from itertools import count
 import math
-from tabnanny import check
-from openpyxl import Workbook
-from scipy.stats import entropy 
-from operator import itemgetter, le
-# from dbus import MissingReplyHandlerException
-import pandas as pd
 import random
-import sys
 import re
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import logsumexp
-from scipy.stats import entropy as en
 from math import factorial
 from datetime import datetime
-import statistics
-
-from sklearn import preprocessing
-
 
 from pyteomics import mzml, parser, mass, mgf
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+#from Bio.Alphabet import generic_protein
 
 
 plt.switch_backend('agg')
@@ -48,14 +35,14 @@ class Spytrometer:
                  bin_offset=0.4,
                  remove_precursor_peak=True,
                  remove_precursor_tolerance=1.5,
-                 max_peak=5000,
+                 max_peak=2000,
                  skip_preprocessing=False,
                  enzyme='trypsin',
                  missed_cleavages=0,
                  min_pept_len=7,
                  max_pept_len=30,
-                 min_pept_mass=2000,
-                 max_pept_mass=4000,
+                 min_pept_mass=200,
+                 max_pept_mass=7200,
                  max_mods=1,
                  min_mods=0,
                  decoy_format=0, #0 for reverse, 1 for shuffle, anything else means no decoy generation.
@@ -63,13 +50,13 @@ class Spytrometer:
                  decoys_only=False, # Generate only decoy peptides, without generating target peptides.
                  modifications={},  # set()
                  static_mods={'C+57.02146'},
-                 theo_pept_peaks='by',   #possible peaks: 'abcxyz'
+                 theo_pept_peaks='b',   #possible peaks: 'abcxyz' #by
                  max_theo_pept_peak_charge=2,    #Should be renamed to max_theo_frag_peak_charge
                  unique_peptides=1,     #0 no unique peptides, much more memory and redundancy,
                                         #1 for unique peptides, less memory, less peptides, but slower peptide generation
                  tolarence_type="PPM",
                  tolarence_window=10,
-                 intensity_cutoff_coefficient=0.5
+                 intensity_cutoff_coefficient=0.05
                  ):
 
         # constants
@@ -96,7 +83,7 @@ class Spytrometer:
         self.remove_precursor_tolerance = remove_precursor_tolerance
         self.intensity_cutoff_coefficient = intensity_cutoff_coefficient
         self.max_xcorr_offset = 75
-        self.max_intensity = 50.0
+        self.max_intensity = 1.0
         self.num_spectrum_regions = 10
 
 
@@ -125,6 +112,7 @@ class Spytrometer:
         self.semi_cleavage = semi_cleavage
         self.unique_peptides = unique_peptides
 
+        self.peptide_ids = {}
         self.spectrum_collection = []
         self.peptide_collection = []
         self.protein_collection = []          # protein sequence related data
@@ -188,7 +176,7 @@ class Spytrometer:
     def load_mgf_data(self, path_to_file, min_peak_th=10):
         # print("Loading spectrum data...")
         # start_time = datetime.now()
-        self.spectrum_collection = []
+        # self.spectrum_collection = []
         with mgf.read(path_to_file, dtype=dict) as spectra:
             for cnt, spectrum in enumerate(spectra):
                 spectrum_record = Spectrum(
@@ -205,6 +193,8 @@ class Spytrometer:
                     self.spectrum_collection.append(spectrum_record)
 
     def load_data(self, path_to_file, min_peak_th=10, data_type='humvar'):
+        # print("Loading spectrum data...")
+        # start_time = datetime.now()
         self.spectrum_collection = []
         with mzml.read(path_to_file, dtype=dict) as spectra:
             for spectrum_id, spectrum in enumerate(spectra):
@@ -255,6 +245,8 @@ class Spytrometer:
 
     def sort_peptides(self, key = "neutral_mass", reverse=False):
         self.peptide_collection = sorted(self.peptide_collection, key=lambda d: getattr(d, key), reverse=reverse)  # sort peptides by
+        for i, pep in enumerate(self.peptide_collection):
+            self.peptide_ids[pep.peptide_seq] = i
         # # neutral_mass in increasing manner
 
     def mass2bin_vec(self, mass, charge=1):  # convert to bin
@@ -404,7 +396,7 @@ class Spytrometer:
     def preprocess_all_spectra(self):
         print("Preprocessing all spectra (discretization, region normalization, and prepartion for XCORR scoring)...")
         start_time = datetime.now()
-        for spect_id in range(len(self.spectrum_collection)):
+        for spect_id in self.spectrum_collection:
             self.spectrum_preprocess(spect_id)
         print("Spectrum preprocess done. Time (h:m:s):\t"+str(datetime.now() - start_time))
 
@@ -485,9 +477,9 @@ class Spytrometer:
                         peptides.append(peptide[:rev_j])
         peptides = set(peptides)                
         for peptide in peptides:
-            if self.unique_peptides == 1 and peptide in self.peptide_set:
-                continue
-            self.peptide_set.add(peptide)        
+            #if self.unique_peptides == 1 and peptide in self.peptide_set:
+            #    continue
+            #self.peptide_set.add(peptide)        
 
             if decoy:
                 self.add_peptide_collection2(peptide, protein_id, 0)
@@ -511,57 +503,68 @@ class Spytrometer:
         return None
 
     def add_peptide_collection2(self, peptide, protein_id, target):
-        # if self.unique_peptides == 1 and peptide in self.peptide_set:
-        #     continue
-        self.peptide_set.add(peptide)        
+        start_pos = [x.start() for x in re.finditer(peptide, self.protein_collection[protein_id].seq)]
+        end_pos = [x.end() for x in re.finditer(peptide, self.protein_collection[protein_id].seq)]
+        if self.unique_peptides == 1 and peptide in self.peptide_ids: 
+            i = self.peptide_ids[peptide]
+            if protein_id not in self.peptide_collection[i].protein_id:
+                self.peptide_collection[i].protein_id.append(protein_id)
+                self.peptide_collection[i].start_pos.append(start_pos)
+                self.peptide_collection[i].end_pos.append(end_pos)
+        else:
 
-        modified_peptides = set(parser.isoforms(peptide, variable_mods=self.modifications, max_mods=self.max_mods))
+            #if target == 1:
+            self.peptide_set.add(peptide)        
+            self.peptide_ids[peptide] = len(self.peptide_collection)
 
-        peptide_aa_mass = np.array([self.aa_mass[aa] for aa in peptide])  #Make this faster using AA as ubytes
-        for mod_pept in modified_peptides:
+            modified_peptides = set(parser.isoforms(peptide, variable_mods=self.modifications, max_mods=self.max_mods))
+
+            peptide_aa_mass = np.array([self.aa_mass[aa] for aa in peptide])  #Make this faster using AA as ubytes
         
-            mod_cnt = len(re.findall(r"\]", mod_pept))
-            if mod_cnt < self.min_mods or mod_cnt > self.max_mods:
-                continue
+            for mod_pept in modified_peptides:
+        
+                mod_cnt = len(re.findall(r"\]", mod_pept))
+                if mod_cnt < self.min_mods or mod_cnt > self.max_mods:
+                    continue
             
-            mod_peptide_aa_mass = list(peptide_aa_mass)   #peptide_aa_mass[:] does not work
-            offset = 0
-            for mod in re.finditer(self.pattern, mod_pept):  # calc modifications' mass
-                location = mod.start()
+                mod_peptide_aa_mass = list(peptide_aa_mass)   #peptide_aa_mass[:] does not work
+                offset = 0
+                for mod in re.finditer(self.pattern, mod_pept):  # calc modifications' mass
+                    location = mod.start()
 
-                if mod_pept[location] == "-":
-                    mod_peptide_aa_mass[-1] += float(mod.group(1))
-                    break
+                    if mod_pept[location] == "-":
+                        mod_peptide_aa_mass[-1] += float(mod.group(1))
+                        break
+                    mod_peptide_aa_mass[location - offset] += float(mod.group(1))
+                    offset += mod.end() - mod.start()
 
-                mod_peptide_aa_mass[location - offset] += float(mod.group(1))
-                offset += mod.end() - mod.start()
+                # mod_pep_mass = np.sum(mod_peptide_aa_mass) + self.mono_h2o #H and OH 
+                mod_pep_mass = np.sum(mod_peptide_aa_mass) + self.Y + self.B #H and OH and static modes
+                if mod_pep_mass < self.min_pept_mass or mod_pep_mass >= self.max_pept_mass:
+                    continue
 
-            # mod_pep_mass = np.sum(mod_peptide_aa_mass) + self.mono_h2o #H and OH 
-            mod_pep_mass = np.sum(mod_peptide_aa_mass) + self.Y + self.B #H and OH and static modes
-            if mod_pep_mass < self.min_pept_mass or mod_pep_mass >= self.max_pept_mass:
-                continue
+                pept_obj = PeptideObj(mod_pep_mass, mod_pept, protein_id, target, peptide, "full",
+                    self.missed_cleavages, start_pos, end_pos)
 
-            pept_obj = PeptideObj(mod_pep_mass, mod_pept, protein_id, target, peptide, "full",
-                                                    self.missed_cleavages)
-            pept_obj.aa_mass = mod_peptide_aa_mass
-            #print(mod_pep_mass, mod_pept, target)
-            self.peptide_collection.append(pept_obj)
+                pept_obj.aa_mass = mod_peptide_aa_mass
+                #print(mod_pep_mass, mod_pept, target)
+                self.peptide_collection.append(pept_obj)
         
-    def calculate_peptide_fragmentation(self, peptide_sequence):
-        # calculating masses of peptide fragment ions
-        peptide = Peptide(peptide_sequence)
+    def calculate_peptide_fragmentation(self, peptide_id):  # calculating masses of peptide fragment ions
+        
+        peptide = self.peptide_collection[peptide_id]
         peptide.peaks = [dict() for x in range(self.max_theo_pept_peak_charge)]
-
+        
         for ion_series in self.theo_pept_peaks:
 
             if ion_series == 'b':  # generate B ions.
                 fragment_ions = np.cumsum(peptide.aa_mass[:-1]) + (self.B + spytrometer_proton)
             if ion_series == 'y':  # generate Y ions.
                 fragment_ions = np.cumsum(peptide.aa_mass[1:][::-1]) + (self.Y + spytrometer_proton)
-
+                
             for peak_charge in range(self.max_theo_pept_peak_charge):
                 fragment_idx = self.mass2bin_vec(fragment_ions, peak_charge + 1)
-                peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx))
+                peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx ))
                 peptide.peaks[peak_charge][ion_series] = peak_list
 
     def set_candidate_peptides(self):
@@ -597,11 +600,22 @@ class Spytrometer:
 
             if self.max_n_candidates < self.spectrum_collection[spect_id].n_candidates:
                 self.max_n_candidates = self.spectrum_collection[spect_id].n_candidates
+
     def load_fasta(self, path_to_fasta):
         cnt = 0
         for record in SeqIO.parse(path_to_fasta, "fasta"):
+            # record.seq.alphabet = generic_protein
             self.protein_collection.append(ProteinObj(cnt, str(record.id), str(record.seq)))
             cnt += 1
+    
+    def save_fasta(self, path_to_fasta, qvalue_threshold):
+        proteins = {}
+        for spectrum in self.spectrum_collection:
+            if spectrum.qvalue < qvalue_threshold:
+                if spectrum.peptide.target == 1:
+                    for idx in spectrum.peptide.protein_id:
+                        proteins[idx] = SeqRecord(Seq(self.protein_collection[idx].seq), str(idx))
+        SeqIO.write(list(proteins.values()), path_to_fasta, "fasta")
 
     def get_theoretical_peaks(self, pept_id):
         if not self.peptide_collection[pept_id].peaks:
@@ -747,44 +761,6 @@ class Spytrometer:
             for i, pept_id in enumerate(range(spectrum.start_pept, spectrum.end_pept)):
                 if log_softmax_scores[i] > spectrum.score:
                     spectrum.score = log_softmax_scores[i]
-                    self.peptide_collection[pept_id].peptide_id = pept_id
-                    spectrum.peptide = self.peptide_collection[pept_id]
-    def tailor_scoring(self):  # tailor_scoring
-        # Assume that the protein fasta  and the spectrum data files are loaded
-        # Assume that all spectra are discretized, normalized and preprocessed with XCORR_substract_background
-        start_time = datetime.now()
-        min_candidates = 20
-
-        for spect_id in range(len(self.spectrum_collection)):
-            spectrum = self.spectrum_collection[spect_id]
-
-            if spectrum.n_candidates == 0:
-                continue
-
-            start_id = spectrum.start_pept
-            end_id = spectrum.end_pept
-
-            if spectrum.n_candidates < min_candidates:
-                end_id = start_id + min_candidates
-            if end_id >= len(self.peptide_collection):
-                end_id = len(self.peptide_collection)
-            if (end_id - start_id) < min_candidates:
-                start_id = end_id - min_candidates
-            if start_id < 0:
-                start_id = 0
-
-            scores = np.zeros(end_id - start_id)
-
-            for i, pept_id in enumerate(range(start_id, end_id)):
-                scores[i] = self.calculate_xcorr_score(spect_id, pept_id) * 50
-
-            top_hits = max(int(len(scores) * 0.05), 5)
-            scores_norm = 0
-            norm_scores = scores - scores_norm
-
-            for i, pept_id in enumerate(range(spectrum.start_pept, spectrum.end_pept)):
-                if norm_scores[i] > spectrum.score:
-                    spectrum.score = norm_scores[i]
                     self.peptide_collection[pept_id].peptide_id = pept_id
                     spectrum.peptide = self.peptide_collection[pept_id]
 
@@ -1078,117 +1054,20 @@ class Spytrometer:
 
         names_of_columns = ["file", "scan", "spectrum_id", "charge", "spectrum precursor m/z", "spectrum neutral mass",
                             "peptide mass",
-            "score", "confidence", "normalized_entropy", "qvalue", "number of candidates", "target", "protein id", "peptide_id", "peptide sequence", "peptide length",
+            "score", "confidence", "qvalue", "number of candidates", "target", "protein id", "peptide_id", "peptide sequence", "peptide length",
             "modifications", "cleavage type", "missed cleavages", "original sequence", "quintile"]
 
         header = "\t".join(names_of_columns) + "\n"
         fout.writelines(header)
 
         for spectrum_id, spectrum in enumerate(self.spectrum_collection):
-            
             result_string = spectrum.print_spectrum(spectrum_id)
             if result_string:
                 fout.writelines(list( "{:d}\t".format(item) if
                 type(item) == int else "{:f}\t".format(item) if type(item) == float else "{:s}\t".format(item) for item in result_string))
                 fout.write("\n")
-                
-            
-        
-         
+
         fout.close()
-        
-    def filtered_sids(self):
-
-        
-        list_sids = []
-        
-        for spectrum_id, spectrum in enumerate(self.spectrum_collection):
-            result_string = spectrum.print_spectrum(spectrum_id)
-            if result_string:
-                if spectrum.neutral_mass > 3000:
-                    list_sids.append(spectrum_id)
-
-        return list_sids
-
-    def filtered_sids_qvalues(self):
-
-        
-        list_sids = []
-        
-        for spectrum_id, spectrum in enumerate(self.spectrum_collection):
-            result_string = spectrum.print_spectrum(spectrum_id)
-            if result_string:
-                if spectrum.neutral_mass > 3000 and spectrum.qvalue < 0.01:
-                    list_sids.append(spectrum_id)
-
-        return list_sids
-
-
-
-    def filtered_results_qvalues(self, filename):
-        fout = open(filename, "w")
-
-        names_of_columns = ["file", "scan", "spectrum_id", "charge", "spectrum precursor m/z", "spectrum neutral mass",
-                            "peptide mass",
-            "score", "confidence", "qvalue", "number of candidates", "target", "protein id", "peptide_id", "peptide sequence", "peptide length",
-            "modifications", "cleavage type", "missed cleavages", "original sequence", "quintile"]
-
-        header = "\t".join(names_of_columns) + "\n"
-        fout.writelines(header)
-        list_sid = []
-        
-        for spectrum_id, spectrum in enumerate(self.spectrum_collection):
-            result_string = spectrum.print_spectrum(spectrum_id)
-            if result_string:
-                if spectrum.neutral_mass > 3000 and spectrum.qvalue < 0.01:
-                    list_sid.append(spectrum_id)
-                    fout.writelines(list( "{:d}\t".format(item) if
-                    type(item) == int else "{:f}\t".format(item) if type(item) == float else "{:s}\t".format(item) for item in result_string))
-                    fout.write("\n")
-           
-              
-        # print(list_sid)
-        # print(len(list_sid))
-        fout.close() 
-    
-    def filtered_results(self, filename):
-        fout = open(filename, "w")
-
-        names_of_columns = ["file", "scan", "spectrum_id", "charge", "spectrum precursor m/z", "spectrum neutral mass",
-                            "peptide mass",
-            "score", "confidence", "qvalue", "number of candidates", "target", "protein id", "peptide_id", "peptide sequence", "peptide length",
-            "modifications", "cleavage type", "missed cleavages", "original sequence", "quintile"]
-
-        header = "\t".join(names_of_columns) + "\n"
-        fout.writelines(header)
-        list_sid = []
-        
-        for spectrum_id, spectrum in enumerate(self.spectrum_collection):
-            result_string = spectrum.print_spectrum(spectrum_id)
-            if result_string:
-                if spectrum.neutral_mass > 3000:
-                    list_sid.append(spectrum_id)
-                    fout.writelines(list( "{:d}\t".format(item) if
-                    type(item) == int else "{:f}\t".format(item) if type(item) == float else "{:s}\t".format(item) for item in result_string))
-                    fout.write("\n")
-           
-              
-        # print(list_sid)
-        # print(len(list_sid))
-        fout.close()
-
-
-
-    
-
-    
-                    
-
-
-                    
-
-        
-        
 
     def compute_qvalues_tdc(self):
 
@@ -1440,213 +1319,10 @@ class Spytrometer:
             # plt.savefig(filename+".pdf", bbox_inches='tight')
             plt.savefig(filename+".pdf", bbox_inches='tight')
             plt.clf()
-    
 
-        
-
-
-    def plot_new_hist(self, spectrum_id, show_annotation=True, peptide_seq=None, font_size=24):
-       
-        spectrum = self.spectrum_collection[spectrum_id]
-
-        if show_annotation == True:
-            peptide = spectrum.peptide
-
-            cnt = 1
-            check_list = []
-            
-            
-
-            for charge in range(len(peptide.peaks)):
-                # Use theoretical peaks which were used in scoring
-                if spectrum.charge < 3 and charge > 0:
-                    continue
-                
-
-                for ion_type in peptide.peaks[charge].keys():
-
-                    peaks = np.asarray(peptide.peaks[charge][ion_type], dtype=np.int32)
-
-                    
-                    
-                    for peak in peaks:
-                        
-                        if spectrum.spectrum_array[peak] > 0:
-                            check_list.append(1)
-      
-                        else:
-                            check_list.append(0)
-                            
-                    
-                    cnt += 1
-                   
-
-            x = len(check_list) // 4
-            l1 = []
-            l21 = []
-            l3 = []
-            l41 = []
-
-            lst1 = []
-            lst2 = []
-            frl = []
-                
-            l1 = check_list[0:x]
-            l1.insert(len(l1), 0)
-
-            l21 = check_list[x:x*2]
-            l21.insert(len(l21), 0)
-            l2 = list(reversed(l21))
-
-            l3 = check_list[x*2:x*3]
-            l3.insert(len(l3), 0)
-
-            l41 = check_list[x*3:x*4]
-            l41.insert(len(l41), 0)
-            l4 = list(reversed(l41))
-
-            for i in range(len(l1)):
-                lst1.append(l1[i]+l3[i])
-                
-            for i in range(len(l2)):
-                lst2.append(l2[i]+l4[i])
-                
-            for i in range(len(lst1)):
-                frl.append(lst1[i]+lst2[i])
-
-        peplist = list(peptide.peptide_seq[:])
-        
-    
-
-        frl = [x+1e-9 for x in frl]
-        list_len = len(frl)
-        ent = entropy(frl)/(-1*np.log(1/list_len))
-        spectrum.normalized_entropy = ent
-        
-        # fg=plt.figure(figsize=(20,13))
-        
-        # plt.subplot(2, 1, 2)
-        
-        
-        # plt.bar(range(len(frl)), frl)
-        # plt.xticks(range(len(peplist)), peplist)
-
-        # ***************************************************
-    #     plt.subplot(2, 1, 1)
-    #     plt.title('Entropy '+ str(ent))
-        
-
-    #     plt.rc('font', size=font_size)          # controls default text sizes
-    #     plt.rc('axes', titlesize=font_size)     # fontsize of the axes title
-    #     plt.rc('axes', labelsize=font_size)     # fontsize of the x and y labels
-    #     plt.rc('xtick', labelsize=font_size)    # fontsize of the tick labels
-    #     plt.rc('ytick', labelsize=font_size)    # fontsize of the tick labels
-    #     plt.rc('legend', fontsize=font_size)    # legend fontsize
-    #     plt.rc('figure', titlesize=font_size)   # fontsize of the figure title
-    #     line_width = 2
-    #     bar_width = 0.5
-
-    #     spectrum = self.spectrum_collection[spectrum_id]
-    #     min_y = np.min((np.min(spectrum.spectrum_array),0))
-    #     max_y = np.max(spectrum.spectrum_array)
-    #     min_x = 0 #np.min(np.nonzero(spectrum.spectrum_array))-1
-    #     max_x = 2000 #np.max(np.nonzero(spectrum.spectrum_array))+1
-        
-    #     plt.xlim(min_x, max_x)
-    #     range_y = max_y-min_y
-    #     tick_height = range_y*0.02
-    #     cmap = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    #     grey = (.7,.7,.7)
-    #     plt.bar(np.nonzero(spectrum.spectrum_array)[0], spectrum.spectrum_array[np.nonzero(spectrum.spectrum_array)], width=bar_width, linewidth=bar_width, color=grey, edgecolor=grey)
-    #     # Line for the base
-    #     plt.plot([min_x, max_x],[0,0], linewidth=1, color='black')
-
-    #     plt.ylabel('Relative intensity')
-    #     plt.xlabel('m/z')
-    #     plt.grid(True)
-    #     plt.yticks((0.0, 0.5, 1.0))
-
-
-    #     if show_annotation == True:
-    #         peptide = spectrum.peptide
-    #         print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
-    #         cnt = 1
-            
-    #         for charge in range(len(peptide.peaks)):
-    #             # Use theoretical peaks which were used in scoring
-    #             if spectrum.charge < 3 and charge > 0:
-    #                 continue
-    #             for ion_type in peptide.peaks[charge].keys():
-    #                 #Get the theoretical peaks
-    #                 peaks = np.asarray(peptide.peaks[charge][ion_type], dtype=np.int32)
-                  
-    #                 peak_prev = min_x
-    #                 for peak in peaks:
-    #                     plt.bar(peak, spectrum.spectrum_array[peak], width=line_width, color=cmap[cnt], edgecolor=cmap[cnt])
-    #                     if spectrum.spectrum_array[peak] > 0: # take into account only positive matches
-    #                         # Place tick and mark experimental peak
-    #                         plt.plot([peak_prev, peak],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linewidth=line_width, color=cmap[cnt])
-    #                         plt.plot([peak, peak],[max_y+range_y*cnt/10-tick_height,max_y+range_y*cnt/10+tick_height], linewidth=line_width, color=cmap[cnt])
-    #                     else:
-    #                         # Place small tick if the theoretical peak did not match
-    #                         plt.plot([peak_prev, peak],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linestyle='--', linewidth=line_width, color=cmap[cnt])
-    #                         plt.plot([peak, peak],[max_y+range_y*cnt/10-tick_height/2,max_y+range_y*cnt/10+tick_height/2], linewidth=bar_width, color=cmap[0])
-    #                     peak_prev = peak
-    #                 # Get the position for the amino acids                            
-    #                 AA_pos = np.concatenate(([peaks[0]/2], (peaks[:-1]+peaks[1:])/2))
-    #                 # Get the peptide sequence
-    #                 pept_seq = peptide.peptide_seq
-    #                 try:
-    #                     modification = '['+re.search(r"\[(.*?)\]", pept_seq).group(1)+']'
-    #                     pept_seq = list(re.sub(r"\[(.*?)\]", '!', pept_seq))
-    #                     pept_seq[pept_seq.index('!') + 1] = modification + pept_seq[pept_seq.index('!') + 1]
-    #                     del pept_seq[pept_seq.index('!')]
-    #                 except:
-    #                     pept_seq = list(pept_seq)
-    #                 if ion_type == 'b':
-    #                     pept_seq = pept_seq[:-1]
-    #                 # Revers the peptide sequence
-    #                 if ion_type == 'y':
-    #                     pept_seq = pept_seq[1:][::-1]
-    #                 plt.text(0, max_y+range_y*1/10+range_y*0.02, ' b-ion', 
-    #                         horizontalalignment='left',
-    #                         verticalalignment='center', 
-    #                         fontsize=font_size-12)
-    #                 plt.text(0, max_y+range_y*2/10+range_y*0.02, ' y-ion', 
-    #                         horizontalalignment='left',
-    #                         verticalalignment='center', 
-    #                         fontsize=font_size-12)
-    #                 for i in range(len(AA_pos)):
-    #                     if AA_pos[i] > max_x:
-    #                         break
-    #                     if i == 0:
-    #                         plt.text(AA_pos[i], max_y+range_y*cnt/10+range_y*0.02, pept_seq[i]+' [TMT6plex]', 
-    #                                 horizontalalignment='center',
-    #                                 verticalalignment='center', 
-    #                                 fontsize=font_size-12)
-    #                     else:
-    #                         plt.text(AA_pos[i], max_y+range_y*cnt/10+range_y*0.02, pept_seq[i], 
-    #                                 horizontalalignment='center',
-    #                                 verticalalignment='center', 
-    #                                 fontsize=font_size-12)
-    #                 cnt += 1
-
-        
-    #   if filename is not None:
-    #         plt.savefig(filename+".pdf", bbox_inches='tight')
-
-        return ent
-           
-      
-
-
-    
-             
-    
     def plot_spectrum(self, spectrum_id, show_annotation=True, peptide_seq=None, filename=None, font_size=24):
-        plt.subplot(2,1,1)
         fg=plt.figure(figsize=(20,5))
-        # fg.patch.set_facecolor('xkcd:white')
+        fg.patch.set_facecolor('xkcd:white')
         plt.rc('font', size=font_size)          # controls default text sizes
         plt.rc('axes', titlesize=font_size)     # fontsize of the axes title
         plt.rc('axes', labelsize=font_size)     # fontsize of the x and y labels
@@ -1676,17 +1352,17 @@ class Spytrometer:
         plt.xlabel('m/z')
         plt.grid(True)
         plt.yticks((0.0, 0.5, 1.0))
-        # plt.savefig(spectra.png)
+
 
         if show_annotation == True:
             peptide = spectrum.peptide
             # plt.title('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
-            # print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
+            print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
             cnt = 1
             # Line for b fragments
-            plt.plot([min_x, max_x],[max_y+range_y*0.1,max_y+range_y*0.1], linewidth=line_width)
+            # plt.plot([min_x, max_x],[max_y+range_y*0.1,max_y+range_y*0.1], linewidth=line_width)
             # Line for y fragments
-            plt.plot([min_x, max_x],[max_y+range_y*0.2,max_y+range_y*0.2], linewidth=line_width)
+            # plt.plot([min_x, max_x],[max_y+range_y*0.2,max_y+range_y*0.2], linewidth=line_width)
             for charge in range(len(peptide.peaks)):
                 # Use theoretical peaks which were used in scoring
                 if spectrum.charge < 3 and charge > 0:
@@ -1755,7 +1431,7 @@ class Spytrometer:
         plt.xlim(min_x, max_x)
         #plt.show()
         #plt.clf()
-    def plot_intensity_change(self, filename):
+    def plot_intensity_change(filename):
         import copy
         font_size = 18
         fg=plt.figure(figsize=(10,5))
@@ -1873,7 +1549,6 @@ class Spectrum(object):  # peptide arrays
         self.quintile = -1000000 # value of 20%-percentile score
         self.raw_score = -1000000 # raw score for any scoring method
         self.score = -1000000  # some matching score, like hyperscore or XCORR, etc.
-        self.normalized_entropy = 0.00000000000
         self.confidence = 1000000  # some statistical confidence value, such as E-value, or (exact) p-value
         self.qvalue = 1000000  # statistical q-value value from TDC or exact-pvalue
         self.n_candidates = 0
@@ -1890,7 +1565,7 @@ class Spectrum(object):  # peptide arrays
 
         modifications = ""
         result_list = [self.path_to_file, self.scan_id, spectrum_id, self.charge, self.precursor_mass, self.neutral_mass,
-            float(self.peptide.neutral_mass), float(self.score), self.confidence, float(self.normalized_entropy), self.qvalue, self.n_candidates,
+            float(self.peptide.neutral_mass), float(self.score), self.confidence, self.qvalue, self.n_candidates,
             int(self.peptide.target), self.peptide.protein_id, self.peptide.peptide_id, self.peptide.peptide_seq, len(self.peptide.peptide_seq),
                        modifications, self.peptide.cleavage_info, self.peptide.missed_cleavages, self.peptide.original_peptide_seq, float(self.quintile)]
 
@@ -1900,11 +1575,11 @@ class Spectrum(object):  # peptide arrays
 # Adding data from fasta file
 class PeptideObj(object):  # peptide information
     def __init__(self, neutral_mass, peptide_seq, protein_id, target, original_peptide_seq, cleavage_info,
-                 missed_cleavages):
+                 missed_cleavages, start_pos, end_pos):
 
         self.neutral_mass = neutral_mass
         self.peptide_seq = peptide_seq
-        self.protein_id = protein_id
+        self.protein_id = [protein_id]
         self.peptide_id = 0
         self.aa_mass = []
         self.target = target  # indicates if the peptide is target: True/False
@@ -1915,6 +1590,8 @@ class PeptideObj(object):  # peptide information
         self.weight = -1
         self.bias = 0
         self.spectrum_array = []
+        self.start_pos = [start_pos]
+        self.end_pos = [end_pos]
 
 # Adding data from fasta file
 class ProteinObj(object):  # peptide information
@@ -1924,5 +1601,4 @@ class ProteinObj(object):  # peptide information
         self.header = protein_header
         self.seq = protein_seq
         self.flag = protein_flag  # can be used to indicate something, which can be used to filter protein sequences
-
-
+        self.tensor = 0
