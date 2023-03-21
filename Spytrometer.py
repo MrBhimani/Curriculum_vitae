@@ -567,6 +567,23 @@ class Spytrometer:
                 peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx ))
                 peptide.peaks[peak_charge][ion_series] = peak_list
 
+    def calculate_peptide_fragmentation(self, peptide_sequence):
+        # calculating masses of peptide fragment ions
+        peptide = self.peptide_collection(peptide_sequence)
+        peptide.peaks = [dict() for x in range(self.max_theo_pept_peak_charge)]
+
+        for ion_series in self.theo_pept_peaks:
+
+            if ion_series == 'b':  # generate B ions.
+                fragment_ions = np.cumsum(peptide.aa_mass[:-1]) + (self.B + spytrometer_proton)
+            if ion_series == 'y':  # generate Y ions.
+                fragment_ions = np.cumsum(peptide.aa_mass[1:][::-1]) + (self.Y + spytrometer_proton)
+
+            for peak_charge in range(self.max_theo_pept_peak_charge):
+                fragment_idx = self.mass2bin_vec(fragment_ions, peak_charge + 1)
+                peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx))
+                peptide.peaks[peak_charge][ion_series] = peak_list
+
     def set_candidate_peptides(self):
         # Spectrum collection must be sorted
         # Peptide collection must be sorted
