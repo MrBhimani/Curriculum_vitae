@@ -198,9 +198,6 @@ class Spytrometer:
         self.spectrum_collection = []
         with mzml.read(path_to_file, dtype=dict) as spectra:
             for spectrum_id, spectrum in enumerate(spectra):
-                if spectrum_id != 0:  # Skip all spectra except for the one with scan_id = 1
-                # if spectrum_id < 1 or spectrum_id > 15:  # Skip all spectra except for those with scan_id between 1 and 15 (inclusive)
-                    continue
                 if data_type in ['humvar', 'iprg', 'malaria', 'yeast']:
                     spectrum_record = Spectrum(
                     path_to_file,  # path to file
@@ -553,35 +550,19 @@ class Spytrometer:
     def calculate_peptide_fragmentation(self, peptide_id):  # calculating masses of peptide fragment ions
         
         peptide = self.peptide_collection[peptide_id]
+        peptide_aa_mass = np.array([self.aa_mass[aa] for aa in peptide])
         peptide.peaks = [dict() for x in range(self.max_theo_pept_peak_charge)]
         
         for ion_series in self.theo_pept_peaks:
 
             if ion_series == 'b':  # generate B ions.
-                fragment_ions = np.cumsum(peptide.aa_mass[:-1]) + (self.B + spytrometer_proton)
+                fragment_ions = np.cumsum(peptide_aa_mass[:-1]) + (self.B + spytrometer_proton)
             if ion_series == 'y':  # generate Y ions.
-                fragment_ions = np.cumsum(peptide.aa_mass[1:][::-1]) + (self.Y + spytrometer_proton)
+                fragment_ions = np.cumsum(peptide_aa_mass[1:][::-1]) + (self.Y + spytrometer_proton)
                 
             for peak_charge in range(self.max_theo_pept_peak_charge):
                 fragment_idx = self.mass2bin_vec(fragment_ions, peak_charge + 1)
                 peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx ))
-                peptide.peaks[peak_charge][ion_series] = peak_list
-
-    def calculate_peptide_fragmentation(self, peptide_sequence):
-        # calculating masses of peptide fragment ions
-        peptide = self.peptide_collection(peptide_sequence)
-        peptide.peaks = [dict() for x in range(self.max_theo_pept_peak_charge)]
-
-        for ion_series in self.theo_pept_peaks:
-
-            if ion_series == 'b':  # generate B ions.
-                fragment_ions = np.cumsum(peptide.aa_mass[:-1]) + (self.B + spytrometer_proton)
-            if ion_series == 'y':  # generate Y ions.
-                fragment_ions = np.cumsum(peptide.aa_mass[1:][::-1]) + (self.Y + spytrometer_proton)
-
-            for peak_charge in range(self.max_theo_pept_peak_charge):
-                fragment_idx = self.mass2bin_vec(fragment_ions, peak_charge + 1)
-                peak_list = list(filter(lambda peak: peak < self.max_bin, fragment_idx))
                 peptide.peaks[peak_charge][ion_series] = peak_list
 
     def set_candidate_peptides(self):
@@ -1374,79 +1355,79 @@ class Spytrometer:
         if show_annotation == True:
             peptide = spectrum.peptide
             # plt.title('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
-            print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
+            # print('Seq:{}  Charge:{}   Mass: {}'.format(peptide.peptide_seq, spectrum.charge, peptide.neutral_mass))
             cnt = 1
             # Line for b fragments
-            # plt.plot([min_x, max_x],[max_y+range_y*0.1,max_y+range_y*0.1], linewidth=line_width)
+            plt.plot([min_x, max_x],[max_y+range_y*0.1,max_y+range_y*0.1], linewidth=line_width)
             # Line for y fragments
-            # plt.plot([min_x, max_x],[max_y+range_y*0.2,max_y+range_y*0.2], linewidth=line_width)
-            for charge in range(len(peptide.peaks)):
-                # Use theoretical peaks which were used in scoring
-                if spectrum.charge < 3 and charge > 0:
-                    continue
-                for ion_type in peptide.peaks[charge].keys():
-                    #Get the theoretical peaks
-                    peaks = np.asarray(peptide.peaks[charge][ion_type], dtype=np.int32)
-                    # Line for ion series 
-                    # plt.plot([min_x, max_x],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linewidth=line_width, color=cmap[cnt])
-                    # Place ticks for the ion fragments in the line
-                    peak_prev = min_x
-                    for peak in peaks:
-                        plt.bar(peak, spectrum.spectrum_array[peak], width=line_width, color=cmap[cnt], edgecolor=cmap[cnt])
-                        if spectrum.spectrum_array[peak] > 0: # take into account only positive matches
-                            # Place tick and mark experimental peak
-                            plt.plot([peak_prev, peak],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linewidth=line_width, color=cmap[cnt])
-                            plt.plot([peak, peak],[max_y+range_y*cnt/10-tick_height,max_y+range_y*cnt/10+tick_height], linewidth=line_width, color=cmap[cnt])
-                        else:
-                            # Place small tick if the theoretical peak did not match
-                            plt.plot([peak_prev, peak],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linestyle='--', linewidth=line_width, color=cmap[cnt])
-                            plt.plot([peak, peak],[max_y+range_y*cnt/10-tick_height/2,max_y+range_y*cnt/10+tick_height/2], linewidth=bar_width, color=cmap[0])
-                        peak_prev = peak
-                    # Get the position for the amino acids                            
-                    AA_pos = np.concatenate(([peaks[0]/2], (peaks[:-1]+peaks[1:])/2))
-                    # Get the peptide sequence
-                    pept_seq = peptide.peptide_seq
-                    try:
-                        modification = '['+re.search(r"\[(.*?)\]", pept_seq).group(1)+']'
-                        pept_seq = list(re.sub(r"\[(.*?)\]", '!', pept_seq))
-                        pept_seq[pept_seq.index('!') + 1] = modification + pept_seq[pept_seq.index('!') + 1]
-                        del pept_seq[pept_seq.index('!')]
-                    except:
-                        pept_seq = list(pept_seq)
-                    if ion_type == 'b':
-                        pept_seq = pept_seq[:-1]
-                    # Revers the peptide sequence
-                    if ion_type == 'y':
-                        pept_seq = pept_seq[1:][::-1]
-                    plt.text(0, max_y+range_y*1/10+range_y*0.02, ' b-ion', 
-                            horizontalalignment='left',
-                            verticalalignment='center', 
-                            fontsize=font_size-12)
-                    plt.text(0, max_y+range_y*2/10+range_y*0.02, ' y-ion', 
-                            horizontalalignment='left',
-                            verticalalignment='center', 
-                            fontsize=font_size-12)
-                    for i in range(len(AA_pos)):
-                        if AA_pos[i] > max_x:
-                            break
-                        if i == 0:
-                            plt.text(AA_pos[i], max_y+range_y*cnt/10+range_y*0.02, pept_seq[i]+' [TMT6plex]', 
-                                    horizontalalignment='center',
-                                    verticalalignment='center', 
-                                    fontsize=font_size-12)
-                        else:
-                            plt.text(AA_pos[i], max_y+range_y*cnt/10+range_y*0.02, pept_seq[i], 
-                                    horizontalalignment='center',
-                                    verticalalignment='center', 
-                                    fontsize=font_size-12)
-                    cnt += 1
+            plt.plot([min_x, max_x],[max_y+range_y*0.2,max_y+range_y*0.2], linewidth=line_width)
+            # for charge in range(len(peptide.peaks)):
+            #     # Use theoretical peaks which were used in scoring
+            #     if spectrum.charge < 3 and charge > 0:
+            #         continue
+            #     for ion_type in peptide.peaks[charge].keys():
+            #         #Get the theoretical peaks
+            #         peaks = np.asarray(peptide.peaks[charge][ion_type], dtype=np.int32)
+            #         # Line for ion series 
+            #         # plt.plot([min_x, max_x],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linewidth=line_width, color=cmap[cnt])
+            #         # Place ticks for the ion fragments in the line
+            #         peak_prev = min_x
+            #         for peak in peaks:
+            #             plt.bar(peak, spectrum.spectrum_array[peak], width=line_width, color=cmap[cnt], edgecolor=cmap[cnt])
+            #             if spectrum.spectrum_array[peak] > 0: # take into account only positive matches
+            #                 # Place tick and mark experimental peak
+            #                 plt.plot([peak_prev, peak],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linewidth=line_width, color=cmap[cnt])
+            #                 plt.plot([peak, peak],[max_y+range_y*cnt/10-tick_height,max_y+range_y*cnt/10+tick_height], linewidth=line_width, color=cmap[cnt])
+            #             else:
+            #                 # Place small tick if the theoretical peak did not match
+            #                 plt.plot([peak_prev, peak],[max_y+range_y*cnt/10,max_y+range_y*cnt/10], linestyle='--', linewidth=line_width, color=cmap[cnt])
+            #                 plt.plot([peak, peak],[max_y+range_y*cnt/10-tick_height/2,max_y+range_y*cnt/10+tick_height/2], linewidth=bar_width, color=cmap[0])
+            #             peak_prev = peak
+            #         # Get the position for the amino acids                            
+            #         AA_pos = np.concatenate(([peaks[0]/2], (peaks[:-1]+peaks[1:])/2))
+            #         # Get the peptide sequence
+            #         pept_seq = peptide.peptide_seq
+            #         try:
+            #             modification = '['+re.search(r"\[(.*?)\]", pept_seq).group(1)+']'
+            #             pept_seq = list(re.sub(r"\[(.*?)\]", '!', pept_seq))
+            #             pept_seq[pept_seq.index('!') + 1] = modification + pept_seq[pept_seq.index('!') + 1]
+            #             del pept_seq[pept_seq.index('!')]
+            #         except:
+            #             pept_seq = list(pept_seq)
+            #         if ion_type == 'b':
+            #             pept_seq = pept_seq[:-1]
+            #         # Revers the peptide sequence
+            #         if ion_type == 'y':
+            #             pept_seq = pept_seq[1:][::-1]
+            #         plt.text(0, max_y+range_y*1/10+range_y*0.02, ' b-ion', 
+            #                 horizontalalignment='left',
+            #                 verticalalignment='center', 
+            #                 fontsize=font_size-12)
+            #         plt.text(0, max_y+range_y*2/10+range_y*0.02, ' y-ion', 
+            #                 horizontalalignment='left',
+            #                 verticalalignment='center', 
+            #                 fontsize=font_size-12)
+            #         for i in range(len(AA_pos)):
+            #             if AA_pos[i] > max_x:
+            #                 break
+            #             if i == 0:
+            #                 plt.text(AA_pos[i], max_y+range_y*cnt/10+range_y*0.02, pept_seq[i]+' [TMT6plex]', 
+            #                         horizontalalignment='center',
+            #                         verticalalignment='center', 
+            #                         fontsize=font_size-12)
+            #             else:
+            #                 plt.text(AA_pos[i], max_y+range_y*cnt/10+range_y*0.02, pept_seq[i], 
+            #                         horizontalalignment='center',
+            #                         verticalalignment='center', 
+            #                         fontsize=font_size-12)
+            #         cnt += 1
 
         if filename is not None:
             # plt.savefig(filename+".pdf", bbox_inches='tight')
             plt.savefig(filename+".pdf", bbox_inches='tight')
             plt.clf()
         plt.xlim(min_x, max_x)
-        #plt.show()
+        plt.show()
         #plt.clf()
     def plot_intensity_change(filename):
         import copy
@@ -1619,5 +1600,3 @@ class ProteinObj(object):  # peptide information
         self.seq = protein_seq
         self.flag = protein_flag  # can be used to indicate something, which can be used to filter protein sequences
         self.tensor = 0
-
-
