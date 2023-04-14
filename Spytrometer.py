@@ -188,7 +188,10 @@ class Spytrometer:
                 if len(spectrum_record.intensity_array) >= min_peak_th:
                     self.spectrum_collection.append(spectrum_record)
 
-    def load_data(self, path_to_file, min_peak_th=10, data_type='humvar'):
+    def load_data(self, path_to_file, min_peak_th=10, data_type='humvar', scan_ids=None):
+        #scan_ids is a list!
+        if scan_ids is not None:
+            scan_ids = set(scan_ids)
         # print("Loading spectrum data...")
         # start_time = datetime.now()
         self.spectrum_collection = []
@@ -1653,5 +1656,4 @@ class ProteinObj(object):  # peptide information
         self.header = protein_header
         self.seq = protein_seq
         self.flag = protein_flag  # can be used to indicate something, which can be used to filter protein sequences
-
 
