@@ -1656,4 +1656,3 @@ class ProteinObj(object):  # peptide information
         self.header = protein_header
         self.seq = protein_seq
         self.flag = protein_flag  # can be used to indicate something, which can be used to filter protein sequences
-
